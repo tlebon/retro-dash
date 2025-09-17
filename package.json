@@ -1,0 +1,23 @@
+{
+  "name": "retro-100m",
+  "version": "1.0.0",
+  "description": "Retro 8-bit 100m dash multiplayer game",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "nodemon server/index.js",
+    "start:local": "node server/index.js",
+    "start:tunnel": "npx localtunnel --port 3000 --subdomain retro100m",
+    "start:ngrok": "node scripts/start-with-ngrok.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "express": "^4.18.2",
+    "qrcode": "^1.5.3",
+    "socket.io": "^4.6.1",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
