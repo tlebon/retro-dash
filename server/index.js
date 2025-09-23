@@ -129,9 +129,46 @@ io.on('connection', (socket) => {
     });
   });
 
+  // Handle player reconnection
+  socket.on('reconnect-player', ({ roomCode, sessionId }, callback) => {
+    console.log(`Reconnection attempt - Room: ${roomCode}, Session: ${sessionId}`);
+
+    const room = gameRooms.get(roomCode);
+    if (!room) {
+      return callback({ success: false, error: 'Room not found' });
+    }
+
+    // Check disconnected players for this session
+    for (const [oldSocketId, player] of room.disconnectedPlayers) {
+      if (player.sessionId === sessionId) {
+        // Found the player, reconnect them
+        const reconnectedPlayer = room.reconnectPlayer(socket.id, oldSocketId);
+
+        if (reconnectedPlayer) {
+          socket.join(roomCode);
+
+          // Notify others that player reconnected
+          io.to(roomCode).emit('player-reconnected', {
+            player: reconnectedPlayer,
+            totalPlayers: room.players.size
+          });
+
+          return callback({
+            success: true,
+            player: reconnectedPlayer,
+            state: room.state
+          });
+        }
+      }
+    }
+
+    // No matching session found
+    callback({ success: false });
+  });
+
   // Player joins room
-  socket.on('join-room', ({ roomCode, playerName, colorIndex }, callback) => {
-    console.log(`Join request - Room: ${roomCode}, Name: ${playerName}, ColorIndex: ${colorIndex}`);
+  socket.on('join-room', ({ roomCode, playerName, colorIndex, sessionId }, callback) => {
+    console.log(`Join request - Room: ${roomCode}, Name: ${playerName}, ColorIndex: ${colorIndex}, Session: ${sessionId}`);
 
     const room = gameRooms.get(roomCode);
 
@@ -208,6 +245,7 @@ io.on('connection', (socket) => {
 
     const player = {
       id: socket.id,
+      sessionId: sessionId,  // Store session ID for reconnection
       name: playerName || `Player ${playerNumber + 1}`,
       number: playerNumber + 1,
       color: GAME_CONSTANTS.PLAYER_COLORS[finalColorIndex],
@@ -260,6 +298,21 @@ io.on('connection', (socket) => {
       player.finishTime = Date.now() - room.raceStartTime;
       player.finishPosition = room.finishOrder.length + 1;
       room.finishOrder.push(player);
+
+      // Send personal finish notification to the player who just finished
+      socket.emit('player-finished', {
+        position: player.finishPosition,
+        finishTime: player.finishTime,
+        taps: player.taps,
+        totalPlayers: room.players.size
+      });
+
+      // Notify all players about the finisher
+      io.to(roomCode).emit('someone-finished', {
+        playerId: socket.id,
+        playerName: player.name,
+        position: player.finishPosition
+      });
 
       // Check if race is over
       if (room.finishOrder.length === room.players.size) {

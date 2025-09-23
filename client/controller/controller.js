@@ -11,6 +11,21 @@ let tapCount = 0;
 let raceActive = false;
 let tapSound = null;
 
+// Get or create session ID for reconnection
+function getSessionId() {
+    const key = `retro100m_session_${roomCode}`;
+    let sessionId = localStorage.getItem(key);
+
+    if (!sessionId) {
+        sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        localStorage.setItem(key, sessionId);
+    }
+
+    return sessionId;
+}
+
+const sessionId = getSessionId();
+
 // Color options
 const COLORS = [
     '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
@@ -26,14 +41,45 @@ document.addEventListener('DOMContentLoaded', () => {
     setupTapButton();
     setupLeaveButtons();
     setupRematchButton();
+    setupTapSound();
 
-    // Check for taken color+pattern combinations
-    socket.emit('get-room-info', { roomCode }, (response) => {
+    // Try to reconnect if we have a session
+    attemptReconnection();
+});
+
+function attemptReconnection() {
+    // Try to reconnect with session ID
+    socket.emit('reconnect-player', {
+        roomCode: roomCode,
+        sessionId: sessionId
+    }, (response) => {
         if (response.success) {
-            updateColorGrid(response.takenColors || []);
+            console.log('Reconnected successfully!');
+            playerData = response.player;
+
+            // Skip to appropriate screen based on game state
+            if (response.state === 'RACING') {
+                showRaceScreen();
+            } else if (response.state === 'RESULTS' || response.state === 'PODIUM') {
+                // Wait for race results
+            } else {
+                showWaitingScreen();
+            }
+        } else {
+            // No previous session, show join screen normally
+            console.log('No previous session found');
+
+            // Check for taken colors
+            socket.emit('get-room-info', { roomCode }, (response) => {
+                if (response.success) {
+                    updateColorGrid(response.takenColors || []);
+                }
+            });
         }
     });
+}
 
+function setupTapSound() {
     // Initialize tap sound (optional - runs on device)
     try {
         const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -63,7 +109,7 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (e) {
         console.log('Audio not available');
     }
-});
+}
 
 function setupColorSelection() {
     const colorGrid = document.getElementById('color-grid');
@@ -250,7 +296,8 @@ function setupJoinButton() {
         socket.emit('join-room', {
             roomCode: roomCode,
             playerName: playerName,
-            colorIndex: selectedColorIndex  // Send full index (includes pattern)
+            colorIndex: selectedColorIndex,  // Send full index (includes pattern)
+            sessionId: sessionId  // Send session ID for reconnection
         }, (response) => {
             if (response.error) {
                 alert(response.error);
@@ -365,6 +412,40 @@ function showRaceScreen() {
     tapCount = 0;
 }
 
+function showPersonalResults(data) {
+    document.querySelectorAll('.screen').forEach(screen => {
+        screen.classList.remove('active');
+    });
+    document.getElementById('results-screen').classList.add('active');
+
+    raceActive = false;
+
+    // Show finish position with medal if applicable
+    const medals = ['🥇', '🥈', '🥉'];
+    const medal = data.position <= 3 ? medals[data.position - 1] : '';
+    const positionText = medal || `#${data.position}`;
+
+    document.getElementById('finish-position').textContent = positionText;
+    document.getElementById('finish-time').textContent = `TIME: ${(data.finishTime / 1000).toFixed(2)}s`;
+    document.getElementById('tap-stats').textContent = `TAPS: ${data.taps}`;
+
+    // Add a congratulations message
+    const resultCard = document.querySelector('.result-card');
+    if (data.position === 1) {
+        resultCard.style.borderColor = '#FFD700';
+    } else if (data.position === 2) {
+        resultCard.style.borderColor = '#C0C0C0';
+    } else if (data.position === 3) {
+        resultCard.style.borderColor = '#CD7F32';
+    }
+
+    // Show position out of total
+    const positionDisplay = document.createElement('div');
+    positionDisplay.style.cssText = 'color: #96CEB4; font-size: 0.8rem; margin-top: 0.5rem;';
+    positionDisplay.textContent = `Position ${data.position} of ${data.totalPlayers}`;
+    resultCard.appendChild(positionDisplay);
+}
+
 function showResultsScreen(results) {
     document.querySelectorAll('.screen').forEach(screen => {
         screen.classList.remove('active');
@@ -409,6 +490,18 @@ socket.on('countdown', (count) => {
 socket.on('race-started', () => {
     raceActive = true;
     document.getElementById('tap-visual').textContent = 'TAP!';
+});
+
+// Handle player's own finish
+socket.on('player-finished', (data) => {
+    raceActive = false;
+    showPersonalResults(data);
+});
+
+// Notification when someone else finishes
+socket.on('someone-finished', (data) => {
+    // Could show a notification that someone finished
+    console.log(`${data.playerName} finished in position ${data.position}!`);
 });
 
 socket.on('position-update', (positions) => {

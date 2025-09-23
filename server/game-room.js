@@ -5,6 +5,7 @@ class GameRoom {
     this.roomCode = roomCode;
     this.hostId = hostId;
     this.players = new Map();
+    this.disconnectedPlayers = new Map(); // Store disconnected players for reconnection
     this.state = GAME_CONSTANTS.GAME_STATES.LOBBY;
 
     // Settings (with defaults)
@@ -21,13 +22,51 @@ class GameRoom {
     this.players.set(player.id, player);
   }
 
-  removePlayer(playerId) {
+  removePlayer(playerId, temporary = true) {
+    const player = this.players.get(playerId);
+
+    if (player && temporary) {
+      // Store player data for potential reconnection (keep for 5 minutes)
+      this.disconnectedPlayers.set(playerId, {
+        ...player,
+        disconnectedAt: Date.now()
+      });
+    }
+
     this.players.delete(playerId);
 
     // If host left, assign new host
     if (playerId === this.hostId && this.players.size > 0) {
       this.hostId = this.players.keys().next().value;
     }
+  }
+
+  // Check if a player can reconnect
+  canReconnect(playerId) {
+    const disconnected = this.disconnectedPlayers.get(playerId);
+    if (!disconnected) return false;
+
+    // Allow reconnection within 5 minutes
+    const fiveMinutes = 5 * 60 * 1000;
+    return (Date.now() - disconnected.disconnectedAt) < fiveMinutes;
+  }
+
+  // Reconnect a player
+  reconnectPlayer(socketId, oldPlayerId) {
+    const disconnected = this.disconnectedPlayers.get(oldPlayerId);
+    if (!disconnected) return null;
+
+    // Restore player with new socket ID
+    const player = {
+      ...disconnected,
+      id: socketId,
+      disconnectedAt: undefined
+    };
+
+    this.players.set(socketId, player);
+    this.disconnectedPlayers.delete(oldPlayerId);
+
+    return player;
   }
 
   updateSettings(settings) {

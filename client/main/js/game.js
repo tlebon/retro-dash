@@ -19,6 +19,11 @@ function initializeHost() {
         document.getElementById('room-code').textContent = response.roomCode;
         document.getElementById('join-url').textContent = response.joinUrl;
 
+        // Initialize race length from settings
+        if (response.settings && response.settings.raceLength) {
+            currentRaceLength = response.settings.raceLength;
+        }
+
         // Set up host controls
         setupHostControls();
     });
@@ -30,6 +35,7 @@ function setupHostControls() {
     const medalCountSelect = document.getElementById('medal-count');
 
     raceLengthSelect.addEventListener('change', () => {
+        currentRaceLength = raceLengthSelect.value;
         socket.emit('update-settings', {
             roomCode: roomData.roomCode,
             settings: { raceLength: raceLengthSelect.value }
@@ -49,6 +55,13 @@ function setupHostControls() {
 }
 
 // Socket event handlers
+socket.on('settings-updated', (settings) => {
+    // Update local race length when server settings change
+    if (settings.raceLength) {
+        currentRaceLength = settings.raceLength;
+    }
+});
+
 socket.on('player-joined', (data) => {
     const { player, totalPlayers } = data;
     players.set(player.id, player);
@@ -187,6 +200,8 @@ function updatePlayerList() {
 }
 
 let raceCanvas, raceContext, spriteScale;
+let currentPlayerCount = 0; // Track current player count for lane drawing
+let currentRaceLength = 'medium'; // Track current race length setting
 
 function initializeRaceView() {
     raceCanvas = document.getElementById('race-track');
@@ -198,17 +213,18 @@ function initializeRaceView() {
 
     // Determine sprite scale based on player count
     const playerCount = players.size;
+    currentPlayerCount = playerCount; // Store for track drawing
 
     if (playerCount <= 12) {
-        spriteScale = { size: 32, lanes: 1, showNames: true };
+        spriteScale = { size: 32, lanes: playerCount, showNames: true };
     } else if (playerCount <= 20) {
-        spriteScale = { size: 24, lanes: 2, showNames: false };
+        spriteScale = { size: 24, lanes: 8, showNames: false };
         document.getElementById('minimap').style.display = 'block';
     } else if (playerCount <= 35) {
-        spriteScale = { size: 16, lanes: 3, focusView: true };
+        spriteScale = { size: 16, lanes: 8, focusView: true };
         document.getElementById('minimap').style.display = 'block';
     } else {
-        spriteScale = { size: 12, lanes: 4, minimapOnly: true };
+        spriteScale = { size: 12, lanes: 8, minimapOnly: true };
         document.getElementById('minimap').style.display = 'block';
     }
 
@@ -266,7 +282,15 @@ function drawStadiumCrowd() {
     raceContext.fillStyle = '#FF6B6B';
     raceContext.font = 'bold 16px "Press Start 2P"';
     raceContext.textAlign = 'center';
-    raceContext.fillText('100M DASH', raceCanvas.width/2, crowdTop + 30);
+
+    // Display actual race length
+    const raceLengths = {
+        'short': '60M DASH',
+        'medium': '100M DASH',
+        'long': '200M DASH'
+    };
+    const bannerText = raceLengths[currentRaceLength] || '100M DASH';
+    raceContext.fillText(bannerText, raceCanvas.width/2, crowdTop + 30);
     raceContext.textAlign = 'left';
 }
 
@@ -327,10 +351,13 @@ function drawRaceTrack() {
     // Draw track lanes with proper perspective
     const trackTop = raceCanvas.height * 0.4;
     const trackHeight = raceCanvas.height * 0.6;
-    const laneHeight = trackHeight / spriteScale.lanes;
+
+    // Determine actual lanes to draw based on player count
+    const lanesToDraw = Math.min(currentPlayerCount || spriteScale.lanes, 8);
+    const laneHeight = trackHeight / lanesToDraw;
 
     // Draw lane lines
-    for (let i = 0; i <= spriteScale.lanes; i++) {
+    for (let i = 0; i <= lanesToDraw; i++) {
         const y = trackTop + (laneHeight * i);
 
         // White lane lines
@@ -346,8 +373,8 @@ function drawRaceTrack() {
     // Draw lane numbers at start
     raceContext.setLineDash([]);
     raceContext.fillStyle = 'white';
-    raceContext.font = '16px "Press Start 2P"';
-    for (let i = 0; i < spriteScale.lanes && i < 8; i++) {
+    raceContext.font = '14px "Press Start 2P"';
+    for (let i = 0; i < lanesToDraw; i++) {
         const y = trackTop + (laneHeight * i) + laneHeight/2 + 6;
         raceContext.fillText(`${i + 1}`, 10, y);
     }
@@ -356,10 +383,24 @@ function drawRaceTrack() {
     raceContext.fillStyle = 'white';
     raceContext.fillRect(40, trackTop, 4, trackHeight);
 
-    // Draw distance markers
-    const distances = [25, 50, 75];
+    // Draw distance markers based on race length
+    let distances, totalDistance;
+    switch(currentRaceLength) {
+        case 'short':
+            distances = [15, 30, 45];
+            totalDistance = 60;
+            break;
+        case 'long':
+            distances = [50, 100, 150];
+            totalDistance = 200;
+            break;
+        default: // medium
+            distances = [25, 50, 75];
+            totalDistance = 100;
+    }
+
     distances.forEach(dist => {
-        const x = (dist / 100) * (raceCanvas.width - 100) + 50;
+        const x = (dist / totalDistance) * (raceCanvas.width - 100) + 50;
         raceContext.strokeStyle = 'rgba(255, 255, 255, 0.3)';
         raceContext.lineWidth = 2;
         raceContext.setLineDash([5, 5]);
@@ -386,26 +427,38 @@ function updateRacePositions(positions) {
 
     const trackTop = raceCanvas.height * 0.4;
     const trackHeight = raceCanvas.height * 0.6;
-    const laneHeight = trackHeight / Math.min(spriteScale.lanes, 8);
+
+    // Calculate number of lanes based on player count
+    const totalPlayers = positions.length;
+    const maxLanesVisible = Math.min(totalPlayers, 8); // Max 8 lanes visible
+    const laneHeight = trackHeight / maxLanesVisible;
+
     const raceDistance = raceCanvas.width - 140; // From start line to finish
     const startX = 50; // Start line position
 
     // Sort by position for drawing order (back to front)
     const sortedPositions = [...positions].sort((a, b) => a.position - b.position);
 
-    // Draw runners
-    sortedPositions.forEach((player, index) => {
-        const lane = (player.number - 1) % Math.min(spriteScale.lanes, 8);
-        const x = startX + (player.position / 100) * raceDistance;
-        const y = trackTop + (lane * laneHeight) + (laneHeight / 2) - (spriteScale.size / 2);
+    // Draw runners - each in their own lane
+    sortedPositions.forEach((player) => {
+        // Use player number - 1 as lane index for consistent lane assignment
+        let laneIndex = player.number - 1;
 
-        // Draw shadow under runner
-        raceContext.fillStyle = 'rgba(0, 0, 0, 0.3)';
-        raceContext.ellipse(x + spriteScale.size/2, y + spriteScale.size,
-                           spriteScale.size/2, spriteScale.size/4, 0, 0, Math.PI * 2);
-        raceContext.fill();
+        // If more than 8 players, wrap around but offset slightly
+        if (totalPlayers > 8) {
+            const row = Math.floor(laneIndex / 8);
+            laneIndex = laneIndex % 8;
+            // Slight offset for multiple rows
+            var xOffset = row * 10;
+        } else {
+            var xOffset = 0;
+        }
 
-        // Draw runner sprite
+        const x = startX + xOffset + (player.position / 100) * raceDistance;
+        const y = trackTop + (laneIndex * laneHeight) + (laneHeight / 2) - (spriteScale.size / 2);
+
+        // Skip shadow - it's causing the visual issue
+        // Just draw the runner sprite directly
         drawRunner(x, y, player, spriteScale.size);
 
         // Draw name/position indicator if enabled
@@ -487,51 +540,36 @@ function drawDetailedRunner(x, y, player, size, animFrame) {
         }
     }
 
-    // Apply pattern overlay
-    applyRunnerPattern(x, y, size, player.pattern);
+    // For larger sprites, add a subtle pattern indicator
+    if (player.pattern !== 'solid') {
+        // Add small accent to indicate pattern variant
+        raceContext.fillStyle = 'rgba(255,255,255,0.5)';
+
+        if (player.pattern === 'striped') {
+            // Armband
+            raceContext.fillRect(x + size * 0.1, y + size * 0.4, size * 0.8, pixelSize);
+        } else if (player.pattern === 'dotted') {
+            // Shoulder dots
+            raceContext.fillRect(x + pixelSize, y + pixelSize * 2, pixelSize, pixelSize);
+            raceContext.fillRect(x + size - pixelSize * 2, y + pixelSize * 2, pixelSize, pixelSize);
+        } else if (player.pattern === 'checker') {
+            // Belt
+            raceContext.fillRect(x + size * 0.2, y + size * 0.5, size * 0.6, pixelSize);
+        } else if (player.pattern === 'diagonal') {
+            // Sash
+            for (let i = 0; i < 3; i++) {
+                raceContext.fillRect(x + i * pixelSize * 2, y + i * pixelSize * 2, pixelSize, pixelSize);
+            }
+        }
+    }
 }
 
 function applyRunnerPattern(x, y, size, pattern) {
     if (pattern === 'solid') return;
 
-    raceContext.save();
-    raceContext.globalAlpha = 0.3;
-
-    if (pattern === 'striped') {
-        raceContext.fillStyle = 'black';
-        for (let i = 0; i < size; i += 6) {
-            raceContext.fillRect(x, y + i, size, 3);
-        }
-    } else if (pattern === 'dotted') {
-        raceContext.fillStyle = 'black';
-        for (let dx = 2; dx < size; dx += 6) {
-            for (let dy = 2; dy < size; dy += 6) {
-                raceContext.beginPath();
-                raceContext.arc(x + dx, y + dy, 2, 0, Math.PI * 2);
-                raceContext.fill();
-            }
-        }
-    } else if (pattern === 'checker') {
-        raceContext.fillStyle = 'black';
-        for (let dx = 0; dx < size; dx += 6) {
-            for (let dy = 0; dy < size; dy += 6) {
-                if ((dx + dy) % 12 === 0) {
-                    raceContext.fillRect(x + dx, y + dy, 3, 3);
-                }
-            }
-        }
-    } else if (pattern === 'diagonal') {
-        raceContext.strokeStyle = 'black';
-        raceContext.lineWidth = 2;
-        for (let i = -size; i < size * 2; i += 6) {
-            raceContext.beginPath();
-            raceContext.moveTo(x + i, y);
-            raceContext.lineTo(x + i - size, y + size);
-            raceContext.stroke();
-        }
-    }
-
-    raceContext.restore();
+    // For detailed sprites, apply subtle pattern to jersey area only
+    // Skip patterns - they make the sprite too busy
+    // Instead, we'll use other indicators
 }
 
 function drawRunner(x, y, player, size) {
@@ -543,16 +581,59 @@ function drawRunner(x, y, player, size) {
         // Larger sprite - more detail
         drawDetailedRunner(x, y, player, size, animFrame);
     } else {
-        // Smaller sprite - simple square with color
+        // Smaller sprite - simple colored rectangle
         raceContext.fillStyle = player.color;
         raceContext.fillRect(x, y, size, size);
-        applyRunnerPattern(x, y, size, player.pattern);
+
+        // Add pattern indicator as a small badge/accent instead of overlay
+        if (player.pattern !== 'solid') {
+            drawPatternIndicator(x, y, size, player.pattern, player.color);
+        }
     }
 
-    // Draw player number
+    // Draw player number with better contrast
+    raceContext.fillStyle = 'black';
+    raceContext.fillRect(x + 1, y + size/2 - 4, size - 2, 8);
     raceContext.fillStyle = 'white';
     raceContext.font = `${Math.floor(size/3)}px "Press Start 2P"`;
-    raceContext.fillText(player.number, x + 2, y + size/2);
+    raceContext.fillText(player.number, x + 2, y + size/2 + 2);
+}
+
+function drawPatternIndicator(x, y, size, pattern, color) {
+    // Draw a small indicator instead of full pattern overlay
+    raceContext.save();
+
+    const indicatorSize = Math.max(4, size / 6);
+    const indicatorX = x + size - indicatorSize - 1;
+    const indicatorY = y + 1;
+
+    // Draw small pattern badge in corner
+    if (pattern === 'striped') {
+        // Single stripe across top
+        raceContext.fillStyle = 'rgba(255,255,255,0.7)';
+        raceContext.fillRect(x, y, size, 2);
+    } else if (pattern === 'dotted') {
+        // Single dot in corner
+        raceContext.fillStyle = 'rgba(255,255,255,0.7)';
+        raceContext.beginPath();
+        raceContext.arc(indicatorX + indicatorSize/2, indicatorY + indicatorSize/2, indicatorSize/2, 0, Math.PI * 2);
+        raceContext.fill();
+    } else if (pattern === 'checker') {
+        // Small checker in corner
+        raceContext.fillStyle = 'rgba(255,255,255,0.7)';
+        raceContext.fillRect(indicatorX, indicatorY, indicatorSize/2, indicatorSize/2);
+        raceContext.fillRect(indicatorX + indicatorSize/2, indicatorY + indicatorSize/2, indicatorSize/2, indicatorSize/2);
+    } else if (pattern === 'diagonal') {
+        // Small diagonal line
+        raceContext.strokeStyle = 'rgba(255,255,255,0.7)';
+        raceContext.lineWidth = 2;
+        raceContext.beginPath();
+        raceContext.moveTo(x, y);
+        raceContext.lineTo(x + size/3, y + size/3);
+        raceContext.stroke();
+    }
+
+    raceContext.restore();
 }
 
 function showResults(results) {
