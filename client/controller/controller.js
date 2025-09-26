@@ -364,12 +364,32 @@ function setupTapButton() {
 function setupLeaveButtons() {
     document.getElementById('leave-waiting').addEventListener('click', () => {
         socket.emit('leave-room', { roomCode: roomCode });
-        window.location.href = '/';
+        returnToJoinScreen();
     });
 
     document.getElementById('leave-results').addEventListener('click', () => {
         socket.emit('leave-room', { roomCode: roomCode });
-        window.location.href = '/';
+        returnToJoinScreen();
+    });
+}
+
+function returnToJoinScreen() {
+    // Reset player data but keep room code
+    playerData = null;
+    tapCount = 0;
+    raceActive = false;
+
+    // Show join screen again
+    document.querySelectorAll('.screen').forEach(screen => {
+        screen.classList.remove('active');
+    });
+    document.getElementById('join-screen').classList.add('active');
+
+    // Re-fetch room info to update taken colors
+    socket.emit('get-room-info', { roomCode }, (response) => {
+        if (response.success) {
+            updateColorGrid(response.takenColors || []);
+        }
     });
 }
 

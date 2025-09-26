@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: retro-100m
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: BASE_URL
+        sync: false  # Will be set after deployment
+    healthCheckPath: /
