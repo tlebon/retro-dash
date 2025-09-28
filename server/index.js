@@ -28,7 +28,13 @@ const io = new Server(server, {
   },
   // Add fallback transports for problematic networks
   transports: ['websocket', 'polling'],
-  allowEIO3: true // Allow different Socket.io versions
+  allowEIO3: true, // Allow different Socket.io versions
+  // Increase timeouts for production environments
+  pingInterval: 25000, // How often to ping clients (25 seconds)
+  pingTimeout: 60000, // How long to wait for pong before disconnecting (60 seconds)
+  connectTimeout: 45000, // Connection timeout (45 seconds)
+  // Allow larger payloads
+  maxHttpBufferSize: 1e6
 });
 
 // Serve static files
@@ -42,6 +48,15 @@ app.get('/', (req, res) => {
 // Serve controller
 app.get('/play/:roomCode', (req, res) => {
   res.sendFile(path.join(__dirname, '../client/controller/index.html'));
+});
+
+// Health check endpoint for monitoring services
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    rooms: gameRooms.size,
+    uptime: process.uptime()
+  });
 });
 
 // Game rooms storage

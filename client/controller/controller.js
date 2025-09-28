@@ -1,5 +1,11 @@
-// Connect to the same origin that served this page
-const socket = io(window.location.origin);
+// Connect to the same origin that served this page with reconnection settings
+const socket = io(window.location.origin, {
+  reconnection: true,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+  reconnectionAttempts: Infinity,
+  transports: ['websocket', 'polling']
+});
 
 // Get room code from URL
 const pathParts = window.location.pathname.split('/');
@@ -545,11 +551,63 @@ socket.on('rematch-started', () => {
     showWaitingScreen();
 });
 
-// Handle connection errors
+// Handle connection errors with auto-reconnection
+let connectionLost = false;
+let reconnectAttempts = 0;
+
 socket.on('connect_error', () => {
-    alert('Connection lost. Please refresh the page.');
+    if (!connectionLost) {
+        connectionLost = true;
+        console.log('Connection error - attempting to reconnect...');
+        // Show subtle notification instead of alert
+        updateConnectionStatus('Reconnecting...');
+    }
+    reconnectAttempts++;
 });
 
 socket.on('disconnect', () => {
-    alert('Disconnected from server. Please refresh the page.');
+    connectionLost = true;
+    updateConnectionStatus('Connection lost - reconnecting...');
 });
+
+socket.on('connect', () => {
+    if (connectionLost) {
+        connectionLost = false;
+        reconnectAttempts = 0;
+        console.log('Reconnected successfully!');
+        updateConnectionStatus('Connected');
+
+        // Re-join room if we have player data
+        if (playerData && roomCode) {
+            socket.emit('reconnect-player', { roomCode, sessionId }, (response) => {
+                if (!response.success) {
+                    // If reconnection fails, try to rejoin
+                    socket.emit('join-room', {
+                        roomCode,
+                        name: playerData.name,
+                        colorIndex: playerData.colorIndex
+                    });
+                }
+            });
+        }
+    }
+});
+
+function updateConnectionStatus(status) {
+    // Find or create status element
+    let statusEl = document.getElementById('connection-status');
+    if (!statusEl) {
+        statusEl = document.createElement('div');
+        statusEl.id = 'connection-status';
+        statusEl.style.cssText = 'position: fixed; top: 10px; right: 10px; padding: 10px; background: rgba(0,0,0,0.8); color: white; font-family: inherit; font-size: 0.7rem; border-radius: 4px; z-index: 9999;';
+        document.body.appendChild(statusEl);
+    }
+
+    if (status === 'Connected') {
+        setTimeout(() => {
+            if (statusEl) statusEl.remove();
+        }, 2000);
+    } else {
+        statusEl.textContent = status;
+    }
+}
