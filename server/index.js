@@ -45,18 +45,25 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '../client/main/index.html'));
 });
 
-// Serve controller
-app.get('/play/:roomCode', (req, res) => {
-  res.sendFile(path.join(__dirname, '../client/controller/index.html'));
-});
-
-// Health check endpoint for monitoring services
+// Health check endpoint for monitoring services (before room code route)
 app.get('/health', (req, res) => {
   res.json({
     status: 'healthy',
     rooms: gameRooms.size,
     uptime: process.uptime()
   });
+});
+
+// Serve controller - simplified URL without /play/
+app.get('/:roomCode', (req, res) => {
+  // Check if it's a valid room code (6 chars, alphanumeric)
+  const roomCode = req.params.roomCode.toUpperCase();
+  if (roomCode.length === 6 && /^[A-Z0-9]+$/.test(roomCode)) {
+    res.sendFile(path.join(__dirname, '../client/controller/index.html'));
+  } else {
+    // If not a valid room code, redirect to main page
+    res.redirect('/');
+  }
 });
 
 // Game rooms storage
@@ -107,9 +114,9 @@ io.on('connection', (socket) => {
     socket.join(roomCode);
     socket.join(`${roomCode}-host`);
 
-    // Generate QR code for joining
+    // Generate QR code for joining - simplified URL
     const baseUrl = getBaseURL();
-    const joinUrl = `${baseUrl}/play/${roomCode}`;
+    const joinUrl = `${baseUrl}/${roomCode}`;
     QRCode.toDataURL(joinUrl, (err, qrCode) => {
       callback({
         roomCode,

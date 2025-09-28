@@ -7,9 +7,8 @@ const socket = io(window.location.origin, {
   transports: ['websocket', 'polling']
 });
 
-// Get room code from URL
-const pathParts = window.location.pathname.split('/');
-const roomCode = pathParts[pathParts.length - 1].toUpperCase();
+// Get room code from URL - now it's just /ROOMCODE
+const roomCode = window.location.pathname.substring(1).toUpperCase();
 
 // Game state
 let playerData = null;
