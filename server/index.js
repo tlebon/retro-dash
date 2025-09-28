@@ -71,7 +71,8 @@ function getBaseURL() {
     return process.env.BASE_URL;
   }
   const ip = getNetworkIP();
-  const port = process.env.PORT || 3000;
+  // Use the actual port the server is running on
+  const port = server.address() ? server.address().port : (process.env.PORT || 3000);
   return `http://${ip}:${port}`;
 }
 
@@ -443,21 +444,34 @@ io.on('connection', (socket) => {
 });
 
 const PORT = GAME_CONSTANTS.PORT;
+
+// Handle port conflicts - automatically find an available port
+server.on('error', (error) => {
+  if (error.code === 'EADDRINUSE') {
+    console.log(`⚠️  Port ${PORT} is already in use, finding an available port...`);
+    server.listen(0); // 0 means assign any available port
+  } else {
+    console.error('Server error:', error);
+    process.exit(1);
+  }
+});
+
+// Try the default port first, then find an available one
 server.listen(PORT, () => {
   const networkIP = getNetworkIP();
   console.log('\n🎮 Retro 100m Dash Server Started!');
   console.log('=====================================');
-  console.log(`📺 Main Display: http://localhost:${PORT}`);
-  console.log(`📱 Local Network: http://${networkIP}:${PORT}`);
+  console.log(`📺 Main Display: http://localhost:${server.address().port}`);
+  console.log(`📱 Local Network: http://${networkIP}:${server.address().port}`);
 
   if (process.env.BASE_URL) {
     console.log(`🌍 Public URL: ${process.env.BASE_URL}`);
   } else {
     console.log('\n💡 Tip: Phones on same WiFi can join via:');
-    console.log(`   http://${networkIP}:${PORT}`);
+    console.log(`   http://${networkIP}:${server.address().port}`);
     console.log('\n🔧 For remote testing, consider:');
-    console.log('   1. ngrok: npx ngrok http 3000');
-    console.log('   2. localtunnel: npx localtunnel --port 3000');
+    console.log(`   1. ngrok: npx ngrok http ${server.address().port}`);
+    console.log(`   2. localtunnel: npx localtunnel --port ${server.address().port}`);
   }
   console.log('=====================================\n');
 });

@@ -1,4 +1,5 @@
-const socket = io();
+// Connect to the same origin that served this page
+const socket = io(window.location.origin);
 
 // Get room code from URL
 const pathParts = window.location.pathname.split('/');
