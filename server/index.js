@@ -221,62 +221,27 @@ io.on('connection', (socket) => {
 
     const playerNumber = room.players.size;
 
-    // Use selected color if provided, otherwise default
+    // Simplified color assignment - no blocking, just rotate patterns
     let finalColorIndex;
     let patternIndex;
 
     if (colorIndex !== undefined && colorIndex !== null) {
-      // Player selected a specific color+pattern combo
-      // The client already sends the correct next available pattern
-      finalColorIndex = colorIndex % 10;
-      patternIndex = Math.floor(colorIndex / 10);
+      // Player selected a color - count how many already have it and assign next pattern
+      finalColorIndex = colorIndex;
 
-      // Log current players' colors
-      console.log('Current players:');
-      Array.from(room.players.values()).forEach(p => {
-        console.log(`  - ${p.name}: color=${p.colorIndex}, pattern=${p.pattern}`);
-      });
+      // Count how many players already have this color
+      const playersWithThisColor = Array.from(room.players.values()).filter(p =>
+        p.colorIndex === finalColorIndex
+      ).length;
 
-      // Double-check this combination isn't taken (shouldn't happen if client is working correctly)
-      const isTaken = Array.from(room.players.values()).some(p => {
-        const pColorIdx = p.colorIndex || 0;
-        const pPatternIdx = GAME_CONSTANTS.PLAYER_PATTERNS.indexOf(p.pattern);
-        const matches = pPatternIdx === patternIndex && pColorIdx === finalColorIndex;
-        if (matches) {
-          console.log(`  Conflict found: Player ${p.name} has color ${pColorIdx} with pattern ${p.pattern} (index ${pPatternIdx})`);
-        }
-        return matches;
-      });
+      // Assign next pattern in rotation
+      patternIndex = playersWithThisColor % GAME_CONSTANTS.PLAYER_PATTERNS.length;
 
-      if (isTaken) {
-        // Instead of erroring, find the next available pattern for this color
-        console.log(`Pattern ${patternIndex} for color ${finalColorIndex} is taken, finding next...`);
-
-        let foundAvailable = false;
-        for (let p = patternIndex + 1; p < GAME_CONSTANTS.PLAYER_PATTERNS.length; p++) {
-          const patternTaken = Array.from(room.players.values()).some(player => {
-            const pColorIdx = player.colorIndex || 0;
-            const pPatternIdx = GAME_CONSTANTS.PLAYER_PATTERNS.indexOf(player.pattern);
-            return pPatternIdx === p && pColorIdx === finalColorIndex;
-          });
-
-          if (!patternTaken) {
-            patternIndex = p;
-            foundAvailable = true;
-            console.log(`Assigned pattern ${p} instead`);
-            break;
-          }
-        }
-
-        if (!foundAvailable) {
-          if (callback) return callback({ error: 'All patterns for this color are already taken' });
-          return;
-        }
-      }
+      console.log(`Player choosing color ${finalColorIndex}, ${playersWithThisColor} already have it, assigning pattern ${patternIndex} (${GAME_CONSTANTS.PLAYER_PATTERNS[patternIndex]})`);
     } else {
       // Default assignment based on join order
       finalColorIndex = playerNumber % 10;
-      patternIndex = Math.floor(playerNumber / 10);
+      patternIndex = Math.floor(playerNumber / 10) % GAME_CONSTANTS.PLAYER_PATTERNS.length;
     }
 
     const player = {

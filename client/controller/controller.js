@@ -74,13 +74,6 @@ function attemptReconnection() {
         } else {
             // No previous session, show join screen normally
             console.log('No previous session found');
-
-            // Check for taken colors
-            socket.emit('get-room-info', { roomCode }, (response) => {
-                if (response.success) {
-                    updateColorGrid(response.takenColors || []);
-                }
-            });
         }
     });
 }
@@ -121,23 +114,16 @@ function setupColorSelection() {
     const colorGrid = document.getElementById('color-grid');
     colorGrid.innerHTML = ''; // Clear existing
 
-    // Create color options - show base colors first
+    // Create simple color options (no pattern blocking)
     COLORS.forEach((color, colorIdx) => {
-        const container = document.createElement('div');
-        container.className = 'color-container';
-        container.style.display = 'inline-block';
-        container.style.position = 'relative';
-
         const colorOption = document.createElement('div');
         colorOption.className = 'color-option';
         colorOption.style.backgroundColor = color;
         colorOption.dataset.colorIndex = colorIdx;
-        colorOption.dataset.pattern = 'solid';
 
         colorOption.addEventListener('click', () => selectColor(colorIdx));
 
-        container.appendChild(colorOption);
-        colorGrid.appendChild(container);
+        colorGrid.appendChild(colorOption);
     });
 
     // Select first color by default
@@ -145,15 +131,8 @@ function setupColorSelection() {
 }
 
 function selectColor(colorIdx) {
-    // Find first available pattern for this color
-    const patternIdx = findFirstAvailablePattern(colorIdx);
-
-    if (patternIdx === null) {
-        alert('All patterns for this color are taken (5 players already have it)');
-        return;
-    }
-
-    const fullIndex = patternIdx * 10 + colorIdx;
+    // Simple selection - just store the color index
+    selectedColorIndex = colorIdx;
 
     // Clear all selections
     document.querySelectorAll('.color-option').forEach(opt => {
@@ -164,130 +143,12 @@ function selectColor(colorIdx) {
     const option = document.querySelector(`[data-color-index="${colorIdx}"]`);
     if (option) {
         option.classList.add('selected');
-        selectedColorIndex = fullIndex;
-
-        // Update the option to show which pattern will be used
-        updateColorOptionDisplay(option, colorIdx, patternIdx);
-
-        // Show preview with pattern
-        updateColorPreview(colorIdx, patternIdx);
     }
-}
-
-function findFirstAvailablePattern(colorIdx) {
-    const takenColors = window.takenColorIndices || [];
-
-    for (let p = 0; p < PATTERNS.length; p++) {
-        const fullIndex = p * 10 + colorIdx;
-        if (!takenColors.includes(fullIndex)) {
-            return p;
-        }
-    }
-    return null;
-}
-
-function findNextAvailablePattern(colorIdx, startPattern) {
-    for (let p = startPattern + 1; p < PATTERNS.length; p++) {
-        const fullIndex = p * 10 + colorIdx;
-        const takenColors = window.takenColorIndices || [];
-        if (!takenColors.includes(fullIndex)) {
-            return p;
-        }
-    }
-    return null;
 }
 
 function updateColorGrid(takenColorIndices) {
-    window.takenColorIndices = takenColorIndices;
-    const colorGrid = document.getElementById('color-grid');
-
-    // Clear and rebuild
-    colorGrid.innerHTML = '';
-
-    COLORS.forEach((color, colorIdx) => {
-        const container = document.createElement('div');
-        container.className = 'color-container';
-        container.style.display = 'inline-block';
-        container.style.marginRight = '5px';
-
-        // Check how many patterns are taken for this color
-        const takenPatterns = [];
-        for (let p = 0; p < PATTERNS.length; p++) {
-            const fullIdx = p * 10 + colorIdx;
-            if (takenColorIndices.includes(fullIdx)) {
-                takenPatterns.push(p);
-            }
-        }
-
-        // Create color option
-        const colorOption = document.createElement('div');
-        colorOption.className = 'color-option';
-        colorOption.style.backgroundColor = color;
-        colorOption.dataset.colorIndex = colorIdx;
-
-        // Show the pattern that will be assigned if selected
-        const nextAvailablePattern = findFirstAvailablePattern(colorIdx);
-        if (nextAvailablePattern !== null && nextAvailablePattern > 0) {
-            // Add pattern overlay to show what you'll get
-            const pattern = document.createElement('div');
-            pattern.className = `pattern-overlay ${PATTERNS[nextAvailablePattern]}`;
-            colorOption.appendChild(pattern);
-        }
-
-        // Mark as unavailable if all patterns taken
-        if (takenPatterns.length >= PATTERNS.length) {
-            colorOption.classList.add('taken');
-            colorOption.style.opacity = '0.3';
-        }
-
-        colorOption.addEventListener('click', () => selectColor(colorIdx));
-
-        container.appendChild(colorOption);
-
-        // Show how many slots available
-        if (takenPatterns.length > 0) {
-            const indicator = document.createElement('div');
-            indicator.style.cssText = 'font-size: 8px; text-align: center; color: white;';
-            const remaining = PATTERNS.length - takenPatterns.length;
-            if (remaining > 0) {
-                indicator.textContent = `${remaining}/5`;
-            } else {
-                indicator.textContent = 'FULL';
-            }
-            container.appendChild(indicator);
-        }
-
-        colorGrid.appendChild(container);
-    });
-
-    // Auto-select first color with available pattern
-    for (let i = 0; i < COLORS.length; i++) {
-        if (findFirstAvailablePattern(i) !== null) {
-            selectColor(i);
-            break;
-        }
-    }
-}
-
-function updateColorOptionDisplay(option, colorIdx, patternIdx) {
-    // Clear existing overlays
-    const existingOverlay = option.querySelector('.pattern-overlay');
-    if (existingOverlay) {
-        existingOverlay.remove();
-    }
-
-    // Add pattern overlay if not solid
-    if (patternIdx > 0) {
-        const pattern = document.createElement('div');
-        pattern.className = `pattern-overlay ${PATTERNS[patternIdx]}`;
-        option.appendChild(pattern);
-    }
-}
-
-function updateColorPreview(colorIdx, patternIdx) {
-    // Update any preview element to show selected color+pattern
-    const previewText = `${COLORS[colorIdx]} - ${PATTERNS[patternIdx]}`;
-    console.log('Selected:', previewText);
+    // No longer needed - colors aren't blocked
+    // Just keep colors selectable
 }
 
 function setupJoinButton() {
@@ -390,13 +251,6 @@ function returnToJoinScreen() {
         screen.classList.remove('active');
     });
     document.getElementById('join-screen').classList.add('active');
-
-    // Re-fetch room info to update taken colors
-    socket.emit('get-room-info', { roomCode }, (response) => {
-        if (response.success) {
-            updateColorGrid(response.takenColors || []);
-        }
-    });
 }
 
 function setupRematchButton() {
