@@ -32,9 +32,9 @@ const GAME_CONSTANTS = {
   // Race configuration
   RACE_CONFIG: {
     lengths: {
-      short: { meters: 60, taps: 180, label: '60m Sprint' },
-      medium: { meters: 100, taps: 300, label: '100m Classic' },
-      long: { meters: 200, taps: 600, label: '200m Endurance' }
+      short: { meters: 60, taps: 180, label: '60m Sprint', timeout: 2 * 60 * 1000 }, // 2 min
+      medium: { meters: 100, taps: 300, label: '100m Classic', timeout: 3 * 60 * 1000 }, // 3 min
+      long: { meters: 200, taps: 600, label: '200m Endurance', timeout: 6 * 60 * 1000 } // 6 min
     },
     defaultLength: 'medium',
     medalCounts: [3, 5, 10],

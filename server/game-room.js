@@ -16,10 +16,32 @@ class GameRoom {
     this.raceStartTime = null;
     this.finishOrder = [];
     this.tapsRequired = GAME_CONSTANTS.RACE_CONFIG.lengths.medium.taps;
+
+    // Track last activity for cleanup
+    this.lastActivity = Date.now();
+    this.createdAt = Date.now();
+  }
+
+  // Update last activity timestamp
+  updateActivity() {
+    this.lastActivity = Date.now();
+  }
+
+  // Check if room is inactive (no activity for 30 minutes)
+  isInactive() {
+    const thirtyMinutes = 30 * 60 * 1000;
+    return Date.now() - this.lastActivity > thirtyMinutes;
+  }
+
+  // Check if room is old and empty (created >2 hours ago with no players)
+  isStale() {
+    const twoHours = 2 * 60 * 60 * 1000;
+    return this.players.size === 0 && (Date.now() - this.createdAt > twoHours);
   }
 
   addPlayer(player) {
     this.players.set(player.id, player);
+    this.updateActivity();
   }
 
   removePlayer(playerId, temporary = true) {
@@ -75,8 +97,12 @@ class GameRoom {
       this.tapsRequired = GAME_CONSTANTS.RACE_CONFIG.lengths[settings.raceLength].taps;
     }
 
-    if (settings.medalCount && GAME_CONSTANTS.RACE_CONFIG.medalCounts.includes(settings.medalCount)) {
-      this.medalCount = settings.medalCount;
+    if (settings.medalCount !== undefined) {
+      // Validate medal count is between 1 and 10
+      const medalCount = parseInt(settings.medalCount);
+      if (medalCount >= 1 && medalCount <= 10) {
+        this.medalCount = medalCount;
+      }
     }
   }
 

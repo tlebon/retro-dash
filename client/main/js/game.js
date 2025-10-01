@@ -735,6 +735,15 @@ socket.on('rematch-started', (state) => {
     updatePlayerList();
 });
 
+socket.on('host-changed', (data) => {
+    console.log('New host assigned:', data.newHostId);
+    // Check if we are the new host (main display is always the host)
+    if (socket.id === data.newHostId) {
+        isHost = true;
+        console.log('You are now the host');
+    }
+});
+
 function startRace() {
     // Initialize any race-specific animations or sounds here
     console.log('Race started!');

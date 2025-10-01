@@ -134,7 +134,8 @@ io.on('connection', (socket) => {
   socket.on('get-room-info', ({ roomCode }, callback) => {
     const room = gameRooms.get(roomCode);
     if (!room) {
-      return callback({ error: 'Room not found' });
+      if (callback) return callback({ error: 'Room not found' });
+      return;
     }
 
     // Get full color indices (0-49, includes pattern)
@@ -145,11 +146,13 @@ io.on('connection', (socket) => {
       return patternIdx * 10 + colorIdx;
     });
 
-    callback({
-      success: true,
-      takenColors: takenColors,
-      playerCount: room.players.size
-    });
+    if (callback) {
+      callback({
+        success: true,
+        takenColors: takenColors,
+        playerCount: room.players.size
+      });
+    }
   });
 
   // Handle player reconnection
@@ -158,7 +161,9 @@ io.on('connection', (socket) => {
 
     const room = gameRooms.get(roomCode);
     if (!room) {
-      return callback({ success: false, error: 'Room not found' });
+      console.log(`⚠️  Room ${roomCode} not found for reconnection`);
+      if (callback) return callback({ success: false, error: 'Room not found' });
+      return;
     }
 
     // Check disconnected players for this session
@@ -176,17 +181,20 @@ io.on('connection', (socket) => {
             totalPlayers: room.players.size
           });
 
-          return callback({
-            success: true,
-            player: reconnectedPlayer,
-            state: room.state
-          });
+          if (callback) {
+            return callback({
+              success: true,
+              player: reconnectedPlayer,
+              state: room.state
+            });
+          }
+          return;
         }
       }
     }
 
     // No matching session found
-    callback({ success: false });
+    if (callback) callback({ success: false });
   });
 
   // Player joins room
@@ -196,15 +204,19 @@ io.on('connection', (socket) => {
     const room = gameRooms.get(roomCode);
 
     if (!room) {
-      return callback({ error: 'Room not found' });
+      console.log(`⚠️  Room ${roomCode} not found`);
+      if (callback) return callback({ error: 'Room not found' });
+      return;
     }
 
     if (room.state !== GAME_CONSTANTS.GAME_STATES.LOBBY) {
-      return callback({ error: 'Game already in progress' });
+      if (callback) return callback({ error: 'Game already in progress' });
+      return;
     }
 
     if (room.players.size >= GAME_CONSTANTS.MAX_PLAYERS) {
-      return callback({ error: 'Room is full' });
+      if (callback) return callback({ error: 'Room is full' });
+      return;
     }
 
     const playerNumber = room.players.size;
@@ -257,7 +269,8 @@ io.on('connection', (socket) => {
         }
 
         if (!foundAvailable) {
-          return callback({ error: 'All patterns for this color are already taken' });
+          if (callback) return callback({ error: 'All patterns for this color are already taken' });
+          return;
         }
       }
     } else {
@@ -292,11 +305,13 @@ io.on('connection', (socket) => {
       totalPlayers: room.players.size
     });
 
-    callback({
-      success: true,
-      player,
-      roomState: room.getState()
-    });
+    if (callback) {
+      callback({
+        success: true,
+        player,
+        roomState: room.getState()
+      });
+    }
 
     console.log(`Player ${player.name} joined successfully`);
   });
@@ -350,16 +365,14 @@ io.on('connection', (socket) => {
     const room = gameRooms.get(roomCode);
     if (!room || socket.id !== room.hostId) return;
 
-    if (settings.raceLength) {
-      room.raceLength = settings.raceLength;
-    }
-    if (settings.medalCount) {
-      room.medalCount = settings.medalCount;
-    }
+    // Use the updateSettings method to properly update all related values
+    room.updateSettings(settings);
+    room.updateActivity();
 
     io.to(roomCode).emit('settings-updated', {
       raceLength: room.raceLength,
-      medalCount: room.medalCount
+      medalCount: room.medalCount,
+      tapsRequired: room.tapsRequired
     });
   });
 
@@ -390,6 +403,37 @@ io.on('connection', (socket) => {
 
           io.to(roomCode).emit('position-update', room.getPositions());
         }, GAME_CONSTANTS.TIMINGS.updateInterval);
+
+        // Auto-finish race after timeout (scaled by race length)
+        const raceConfig = GAME_CONSTANTS.RACE_CONFIG.lengths[room.raceLength];
+        const timeout = raceConfig.timeout;
+        console.log(`⏱️  Race started with ${timeout / 1000}s timeout (${raceConfig.label})`);
+
+        const raceTimeout = setTimeout(() => {
+          if (room.state === GAME_CONSTANTS.GAME_STATES.RACING) {
+            console.log(`⏱️  Race timeout in room ${roomCode} - marking unfinished players as DNF`);
+
+            // Mark all unfinished players as DNF
+            for (const player of room.players.values()) {
+              if (!player.finished) {
+                player.finished = true;
+                player.dnf = true;
+                player.finishTime = null;
+              }
+            }
+
+            room.endRace();
+            io.to(roomCode).emit('race-ended', room.getResults());
+            clearInterval(updateInterval);
+          }
+        }, timeout);
+
+        // Clear timeout if race ends normally
+        const originalEndRace = room.endRace.bind(room);
+        room.endRace = function() {
+          clearTimeout(raceTimeout);
+          return originalEndRace();
+        };
       }
       count--;
     }, 1000);
@@ -446,13 +490,24 @@ io.on('connection', (socket) => {
     // Find and remove player from any room they were in
     for (const [roomCode, room] of gameRooms) {
       if (room.players.has(socket.id)) {
+        const wasHost = socket.id === room.hostId;
         room.removePlayer(socket.id);
+
         io.to(roomCode).emit('player-left', {
           playerId: socket.id,
           totalPlayers: room.players.size
         });
 
+        // Notify if host changed
+        if (wasHost && room.players.size > 0) {
+          console.log(`🎮 New host assigned in room ${roomCode}: ${room.hostId}`);
+          io.to(roomCode).emit('host-changed', {
+            newHostId: room.hostId
+          });
+        }
+
         if (room.players.size === 0) {
+          console.log(`🗑️  Deleting empty room: ${roomCode}`);
           gameRooms.delete(roomCode);
         }
         break;
@@ -464,6 +519,49 @@ io.on('connection', (socket) => {
     console.error(`⚠️ Socket error for ${socket.id}:`, error);
   });
 });
+
+// Periodic cleanup of inactive and stale rooms
+setInterval(() => {
+  const now = Date.now();
+  const roomsToDelete = [];
+
+  for (const [roomCode, room] of gameRooms.entries()) {
+    // Remove rooms with no players that are >1 hour old
+    if (room.players.size === 0 && room.disconnectedPlayers.size === 0) {
+      const oneHour = 60 * 60 * 1000;
+      if (now - room.createdAt > oneHour) {
+        roomsToDelete.push(roomCode);
+        console.log(`🧹 Cleaning up empty room: ${roomCode} (${Math.round((now - room.createdAt) / 60000)} minutes old)`);
+      }
+    }
+    // Remove inactive rooms (no activity for 2 hours, even with players)
+    else if (room.isInactive && room.isInactive()) {
+      roomsToDelete.push(roomCode);
+      console.log(`🧹 Cleaning up inactive room: ${roomCode} (${room.players.size} players, ${Math.round((now - room.lastActivity) / 60000)} minutes inactive)`);
+    }
+
+    // Clean up old disconnected players (older than 10 minutes)
+    if (room.disconnectedPlayers.size > 0) {
+      const tenMinutes = 10 * 60 * 1000;
+      for (const [playerId, player] of room.disconnectedPlayers.entries()) {
+        if (now - player.disconnectedAt > tenMinutes) {
+          room.disconnectedPlayers.delete(playerId);
+          console.log(`🧹 Removed stale disconnected player from room ${roomCode}`);
+        }
+      }
+    }
+  }
+
+  // Delete marked rooms
+  for (const roomCode of roomsToDelete) {
+    gameRooms.delete(roomCode);
+  }
+
+  // Log memory stats every cleanup cycle
+  if (gameRooms.size > 0 || roomsToDelete.length > 0) {
+    console.log(`📊 Active rooms: ${gameRooms.size}, Cleaned: ${roomsToDelete.length}`);
+  }
+}, 10 * 60 * 1000); // Run cleanup every 10 minutes
 
 const PORT = GAME_CONSTANTS.PORT;
 
