@@ -14,8 +14,22 @@
 
         body {
             font-family: 'Press Start 2P', monospace;
-            background: linear-gradient(180deg, #87CEEB 0%, #98D8C8 100%);
+            background: #87CEEB;
             overflow: hidden;
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+            position: relative;
+        }
+
+        /* Stadium background canvas */
+        #lobby-stadium-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 0;
             image-rendering: pixelated;
             image-rendering: -moz-crisp-edges;
             image-rendering: crisp-edges;
@@ -28,13 +42,15 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
+            position: relative;
+            z-index: 1;
         }
 
         /* Lobby Screen */
         #lobby-screen {
             text-align: center;
             padding: 1.5rem;
-            background: rgba(0, 0, 0, 0.8);
+            background: rgba(0, 0, 0, 0.85);
             color: white;
             border: 4px solid white;
             border-radius: 8px;
@@ -44,14 +60,35 @@
             flex-direction: column;
             overflow: hidden;
             margin: auto;
+            position: relative;
         }
 
-        #lobby-screen h1 {
+        .title-row {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 1rem;
+            margin-bottom: 0.5rem;
+            flex-shrink: 0;
+        }
+
+        @keyframes bounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+        }
+
+        @keyframes run {
+            0%, 100% { transform: translateX(0) scaleX(1); }
+            25% { transform: translateX(3px) scaleX(1.05); }
+            50% { transform: translateX(0) scaleX(1); }
+            75% { transform: translateX(-3px) scaleX(0.95); }
+        }
+
+        .title-row h1 {
             color: #FFD93D;
             font-size: 1.8rem;
-            margin-bottom: 0.5rem;
+            margin: 0;
             text-shadow: 3px 3px 0px #F4A460;
-            flex-shrink: 0;
         }
 
         #qr-container {
@@ -448,10 +485,15 @@
     </style>
 </head>
 <body>
+    <!-- Background stadium canvas -->
+    <canvas id="lobby-stadium-bg"></canvas>
+
     <div id="game-container">
         <!-- Lobby Screen -->
         <div id="lobby-screen">
-            <h1>RETRODASH.WIN</h1>
+            <div class="title-row">
+                <h1>RETRODASH.WIN</h1>
+            </div>
             <div id="qr-container">
                 <img id="qr-code" alt="QR Code to join">
             </div>

@@ -8,6 +8,7 @@ let isHost = false;
 // Initialize game when page loads
 window.addEventListener('DOMContentLoaded', () => {
     initializeHost();
+    animateLobbyStadium();
 });
 
 function initializeHost() {
@@ -92,6 +93,10 @@ socket.on('countdown-started', () => {
     document.getElementById('lobby-screen').style.display = 'none';
     document.getElementById('race-screen').style.display = 'block';
     document.getElementById('countdown-overlay').style.display = 'flex';
+
+    // Hide lobby background canvas during race
+    const lobbyBg = document.getElementById('lobby-stadium-bg');
+    if (lobbyBg) lobbyBg.style.display = 'none';
 });
 
 socket.on('countdown', (count) => {
@@ -641,6 +646,10 @@ function showResults(results) {
     document.getElementById('race-screen').style.display = 'none';
     document.getElementById('results-screen').style.display = 'block';
 
+    // Show lobby background animations
+    const lobbyBg = document.getElementById('lobby-stadium-bg');
+    if (lobbyBg) lobbyBg.style.display = 'block';
+
     // Show podium (only for finished players)
     const podium = document.getElementById('podium');
     podium.innerHTML = '';
@@ -733,6 +742,10 @@ socket.on('rematch-started', (state) => {
     gameState = state;
     players = new Map(state.players.map(p => [p.id, p]));
     updatePlayerList();
+
+    // Show lobby background canvas again
+    const lobbyBg = document.getElementById('lobby-stadium-bg');
+    if (lobbyBg) lobbyBg.style.display = 'block';
 });
 
 socket.on('host-changed', (data) => {
@@ -747,4 +760,186 @@ socket.on('host-changed', (data) => {
 function startRace() {
     // Initialize any race-specific animations or sounds here
     console.log('Race started!');
+}
+
+// Lobby stadium animation state
+let lobbyAnimationFrame = 0;
+let lobbyRunners = [];
+
+// Initialize lobby runners
+function initLobbyRunners() {
+    lobbyRunners = [];
+    const skinTones = ['#FFE0BD', '#F1C27D', '#D4A373', '#8D5524', '#5C4033'];
+    for (let i = 0; i < 5; i++) {
+        lobbyRunners.push({
+            x: Math.random() * window.innerWidth,
+            y: window.innerHeight * (0.5 + Math.random() * 0.3), // Random lane
+            speed: 2 + Math.random() * 3,
+            color: ['#FF6B6B', '#4ECDC4', '#FFD93D', '#96CEB4', '#DDA0DD'][i],
+            skinTone: skinTones[i],
+            size: 12
+        });
+    }
+}
+
+// Draw stadium background for lobby
+function drawLobbyStadium() {
+    const canvas = document.getElementById('lobby-stadium-bg');
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    // Initialize runners on first draw
+    if (lobbyRunners.length === 0) {
+        initLobbyRunners();
+    }
+
+    // Sky gradient (top section)
+    const skyHeight = canvas.height * 0.2;
+    const skyGradient = ctx.createLinearGradient(0, 0, 0, skyHeight);
+    skyGradient.addColorStop(0, '#87CEEB');
+    skyGradient.addColorStop(1, '#98D8C8');
+    ctx.fillStyle = skyGradient;
+    ctx.fillRect(0, 0, canvas.width, skyHeight);
+
+    // Stadium crowd (bigger stands)
+    const crowdHeight = canvas.height * 0.4;
+    const crowdTop = skyHeight;
+
+    // Stadium background
+    const stadiumGradient = ctx.createLinearGradient(0, crowdTop, 0, crowdTop + crowdHeight);
+    stadiumGradient.addColorStop(0, '#2C3E50');
+    stadiumGradient.addColorStop(1, '#34495E');
+    ctx.fillStyle = stadiumGradient;
+    ctx.fillRect(0, crowdTop, canvas.width, crowdHeight);
+
+    // Pixelated crowd (with gaps)
+    const pixelSize = 6;
+    const crowdColors = ['#FF6B6B', '#4ECDC4', '#FFD93D', '#96CEB4', '#DDA0DD', '#F4A460'];
+
+    for (let x = 0; x < canvas.width; x += pixelSize * 2) {
+        for (let y = crowdTop; y < crowdTop + crowdHeight; y += pixelSize * 2) {
+            // Random threshold creates gaps - 50% chance of drawing
+            if (Math.random() > 0.5) {
+                ctx.fillStyle = crowdColors[Math.floor(Math.random() * crowdColors.length)];
+                ctx.fillRect(x, y, pixelSize, pixelSize);
+            }
+        }
+    }
+
+    // Stadium lights (animated) - from top of stands into sky
+    const lightPositions = [0.15, 0.35, 0.65, 0.85];
+    lightPositions.forEach((pos, i) => {
+        const x = canvas.width * pos;
+        const poleHeight = 60;
+        const poleBottom = crowdTop; // Start at top of stands
+
+        // Light pole
+        ctx.fillStyle = '#1A1A1A';
+        ctx.fillRect(x - 4, poleBottom - poleHeight, 8, poleHeight);
+
+        // Animated light brightness (slower pulse)
+        const pulseOffset = i * Math.PI / 2;
+        const brightness = 0.7 + Math.sin(lobbyAnimationFrame / 60 + pulseOffset) * 0.3;
+
+        // Light fixture (at top of pole, in the sky)
+        ctx.fillStyle = `rgba(255, 255, 0, ${brightness})`;
+        ctx.fillRect(x - 20, poleBottom - poleHeight - 10, 40, 12);
+
+        // Light glow (pulsing)
+        const glowSize = 30 + Math.sin(lobbyAnimationFrame / 60 + pulseOffset) * 5;
+        ctx.fillStyle = `rgba(255, 255, 0, ${brightness * 0.3})`;
+        ctx.beginPath();
+        ctx.arc(x, poleBottom - poleHeight - 4, glowSize, 0, Math.PI * 2);
+        ctx.fill();
+    });
+
+    // Track
+    const trackTop = canvas.height * 0.5;
+    const trackHeight = canvas.height * 0.5;
+
+    // Track gradient
+    const trackGradient = ctx.createLinearGradient(0, trackTop, 0, canvas.height);
+    trackGradient.addColorStop(0, '#8B4513');
+    trackGradient.addColorStop(1, '#A0522D');
+    ctx.fillStyle = trackGradient;
+    ctx.fillRect(0, trackTop, canvas.width, trackHeight);
+
+    // Track lanes
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+    ctx.lineWidth = 2;
+    for (let i = 1; i < 8; i++) {
+        const y = trackTop + (trackHeight / 8) * i;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+    }
+
+    // Finish line
+    const finishX = canvas.width - 100;
+    const checkerSize = 15;
+    const checkerWidth = 50;
+
+    for (let y = trackTop; y < canvas.height; y += checkerSize) {
+        for (let x = finishX; x < finishX + checkerWidth; x += checkerSize) {
+            const isBlack = ((x - finishX) / checkerSize + (y - trackTop) / checkerSize) % 2 < 1;
+            ctx.fillStyle = isBlack ? 'black' : 'white';
+            ctx.fillRect(x, y, checkerSize, checkerSize);
+        }
+    }
+
+    // Draw and animate runners
+    lobbyRunners.forEach(runner => {
+        // Update position
+        runner.x += runner.speed;
+
+        // Wrap around
+        if (runner.x > canvas.width + 20) {
+            runner.x = -20;
+            runner.y = trackTop + Math.random() * trackHeight * 0.8;
+        }
+
+        // Draw simple runner sprite (facing right)
+        const size = runner.size;
+
+        // Shadow
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+        ctx.fillRect(runner.x - 2, runner.y + size + 2, size + 4, 2);
+
+        // Body (horizontal)
+        ctx.fillStyle = runner.color;
+        ctx.fillRect(runner.x, runner.y, size * 1.2, size);
+
+        // Head (in front)
+        ctx.fillStyle = runner.skinTone;
+        ctx.fillRect(runner.x + size * 1.2 - 2, runner.y - size/3, size * 0.8, size * 0.8);
+
+        // Running animation (legs - horizontal movement)
+        const legOffset = Math.sin(runner.x / 10) * 3;
+        ctx.fillStyle = runner.skinTone;
+        // Back leg
+        ctx.fillRect(runner.x + 2, runner.y + size, 2, 4 + legOffset);
+        // Front leg
+        ctx.fillRect(runner.x + size - 2, runner.y + size, 2, 4 - legOffset);
+
+        // Arms (pumping motion)
+        ctx.fillStyle = runner.skinTone;
+        const armSwing = Math.sin(runner.x / 10) * 2;
+        // Back arm
+        ctx.fillRect(runner.x + 2, runner.y + 2, 2, 3 - armSwing);
+        // Front arm
+        ctx.fillRect(runner.x + size, runner.y + 2, 2, 3 + armSwing);
+    });
+
+    // Increment animation frame
+    lobbyAnimationFrame++;
+}
+
+// Animate the lobby stadium
+function animateLobbyStadium() {
+    drawLobbyStadium();
+    requestAnimationFrame(animateLobbyStadium);
 }

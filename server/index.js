@@ -529,12 +529,21 @@ setInterval(() => {
 }, 10 * 60 * 1000); // Run cleanup every 10 minutes
 
 const PORT = GAME_CONSTANTS.PORT;
+const FALLBACK_PORTS = [3001, 3002, 3003, 8080, 8000]; // Deterministic fallback ports
+let currentPortIndex = -1;
 
-// Handle port conflicts - automatically find an available port
+// Handle port conflicts - try deterministic fallback ports
 server.on('error', (error) => {
   if (error.code === 'EADDRINUSE') {
-    console.log(`⚠️  Port ${PORT} is already in use, finding an available port...`);
-    server.listen(0); // 0 means assign any available port
+    currentPortIndex++;
+    if (currentPortIndex < FALLBACK_PORTS.length) {
+      const nextPort = FALLBACK_PORTS[currentPortIndex];
+      console.log(`⚠️  Port ${currentPortIndex === 0 ? PORT : FALLBACK_PORTS[currentPortIndex - 1]} is already in use, trying port ${nextPort}...`);
+      server.listen(nextPort);
+    } else {
+      console.error(`❌ All fallback ports are in use. Please free up one of these ports: ${PORT}, ${FALLBACK_PORTS.join(', ')}`);
+      process.exit(1);
+    }
   } else {
     console.error('Server error:', error);
     process.exit(1);
